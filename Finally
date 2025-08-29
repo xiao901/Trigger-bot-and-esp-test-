@@ -1,0 +1,141 @@
+-- Services
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+
+-- SETTINGS
+local active = false -- This controls everything
+local circleRadius = 100 -- pixels
+local shootDelay = 0.2 -- seconds between shots
+
+-- FUNCTIONS
+local function addHighlight(character)
+    if character:FindFirstChild("Highlight") then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "Highlight"
+    highlight.FillColor = Color3.fromRGB(0, 255, 0)
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = character
+end
+
+local function removeHighlight(character)
+    if character:FindFirstChild("Highlight") then
+        character.Highlight:Destroy()
+    end
+end
+
+-- SHOOT FUNCTION (replace with your game's shooting logic)
+local function shoot(player)
+    if player.Character and player.Character:FindFirstChild("Head") then
+        print("Shooting at " .. player.Name .. " (Head)")
+        -- Example: LocalPlayer.Backpack.Tool:Activate() or RemoteEvent:FireServer()
+    end
+end
+
+local function getScreenPosition(player)
+    if player.Character and player.Character:FindFirstChild("Head") then
+        local head = player.Character.Head
+        local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+        return Vector2.new(screenPos.X, screenPos.Y), onScreen
+    end
+end
+
+-- CREATE UI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = PlayerGui
+
+-- SINGLE TOGGLE BUTTON
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0, 60, 0, 30)
+button.Position = UDim2.new(0.95, -60, 0.05, 0)
+button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.Text = "OFF"
+button.Parent = screenGui
+
+-- PURPLE AIM CIRCLE (hidden initially)
+local circle = Instance.new("Frame")
+circle.Size = UDim2.new(0, circleRadius*2, 0, circleRadius*2)
+circle.Position = UDim2.new(0.5, -circleRadius, 0.5, -circleRadius)
+circle.BackgroundColor3 = Color3.fromRGB(128, 0, 128)
+circle.BackgroundTransparency = 0.5
+circle.BorderSizePixel = 0
+circle.AnchorPoint = Vector2.new(0.5, 0.5)
+circle.Parent = screenGui
+circle.Visible = false
+
+-- BUTTON CLICK TO TOGGLE EVERYTHING
+button.MouseButton1Click:Connect(function()
+    active = not active
+    button.Text = active and "ON" or "OFF"
+    circle.Visible = active
+
+    -- Apply or remove highlight for all players immediately
+    for _, player in pairs(Players:GetPlayers()) do
+        if player.Character then
+            if active then
+                addHighlight(player.Character)
+            else
+                removeHighlight(player.Character)
+            end
+        end
+    end
+end)
+
+-- Handle player respawns
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(character)
+        if active then
+            character:WaitForChild("HumanoidRootPart")
+            addHighlight(character)
+        end
+    end)
+end)
+
+for _, player in pairs(Players:GetPlayers()) do
+    if player.Character then
+        player.CharacterAdded:Connect(function(character)
+            if active then
+                character:WaitForChild("HumanoidRootPart")
+                addHighlight(character)
+            end
+        end)
+    end
+end
+
+-- MAIN LOOP: ESP + AIMBOT
+local lastShot = 0
+RunService.RenderStepped:Connect(function()
+    local mousePos = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+    if active then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                -- Refresh highlight
+                addHighlight(player.Character)
+
+                -- Aimbot check: head inside circle
+                local screenPos, onScreen = getScreenPosition(player)
+                if onScreen then
+                    local distance = (screenPos - mousePos).Magnitude
+                    if distance <= circleRadius and tick() - lastShot >= shootDelay then
+                        shoot(player)
+                        lastShot = tick()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- REFRESH LOG EVERY SECOND
+spawn(function()
+    while true do
+        task.wait(1)
+        print("HI") -- Proof the script is running every second
+    end
+end)
