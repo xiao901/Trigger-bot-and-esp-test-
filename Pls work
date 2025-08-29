@@ -1,0 +1,165 @@
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+
+-- SETTINGS
+local active = false
+local circleRadius = 100
+local shootDelay = 0.2
+local ringThickness = 4
+local smoothness = 0.15 -- how fast the aim moves
+local crosshairSize = 4 -- size of the small crosshair dot
+
+-- FUNCTIONS
+local function addHighlight(character)
+    if character:FindFirstChild("Highlight") then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "Highlight"
+    highlight.FillColor = Color3.fromRGB(0,255,0)
+    highlight.OutlineColor = Color3.fromRGB(255,255,255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = character
+end
+
+local function removeHighlight(character)
+    if character:FindFirstChild("Highlight") then
+        character.Highlight:Destroy()
+    end
+end
+
+local function getHead(player)
+    local char = player.Character
+    if char then
+        return char:FindFirstChild("Head")
+    end
+end
+
+local function getScreenPosition(player)
+    local head = getHead(player)
+    if head then
+        local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+        return Vector2.new(screenPos.X, screenPos.Y), onScreen
+    end
+end
+
+-- DA HOOD SHOOT FUNCTION
+local function shootAtHead(targetPlayer)
+    local head = getHead(targetPlayer)
+    if not head then return end
+    local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+    if tool and ReplicatedStorage:FindFirstChild("ShootEvent") then
+        ReplicatedStorage.ShootEvent:FireServer(head.Position)
+    end
+end
+
+-- CREATE UI
+local screenGui = Instance.new("ScreenGui", PlayerGui)
+
+-- Toggle button
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0,60,0,30)
+button.Position = UDim2.new(0.95, -60, 0.05, 0)
+button.BackgroundColor3 = Color3.fromRGB(0,0,0)
+button.TextColor3 = Color3.fromRGB(255,255,255)
+button.Text = "OFF"
+button.Parent = screenGui
+
+-- Ring
+local circle = Instance.new("Frame")
+circle.Size = UDim2.new(0, circleRadius*2, 0, circleRadius*2)
+circle.Position = UDim2.new(0.5, -circleRadius, 0.5, -circleRadius)
+circle.BackgroundTransparency = 1
+circle.AnchorPoint = Vector2.new(0.5,0.5)
+circle.Visible = false
+circle.Parent = screenGui
+
+local stroke = Instance.new("UIStroke")
+stroke.Thickness = ringThickness
+stroke.Color = Color3.fromRGB(128,0,128)
+stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+stroke.Parent = circle
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0.5,0)
+corner.Parent = circle
+
+-- Small crosshair dot
+local crosshair = Instance.new("Frame")
+crosshair.Size = UDim2.new(0, crosshairSize, 0, crosshairSize)
+crosshair.Position = UDim2.new(0.5, -crosshairSize/2, 0.5, -crosshairSize/2)
+crosshair.AnchorPoint = Vector2.new(0.5,0.5)
+crosshair.BackgroundColor3 = Color3.fromRGB(255,0,0) -- red dot
+crosshair.BorderSizePixel = 0
+crosshair.Visible = false
+crosshair.Parent = screenGui
+
+-- TOGGLE BUTTON FUNCTION
+button.MouseButton1Click:Connect(function()
+    active = not active
+    button.Text = active and "ON" or "OFF"
+    circle.Visible = active
+    crosshair.Visible = active
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p.Character then
+            if active then addHighlight(p.Character)
+            else removeHighlight(p.Character) end
+        end
+    end
+end)
+
+-- PLAYER RESPAWN HANDLING
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function(c)
+        if active then addHighlight(c) end
+    end)
+end)
+
+-- MAIN LOOP: ESP + SMOOTH AIM + CROSSHAIR
+local lastShot = 0
+local aimPosition = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+RunService.RenderStepped:Connect(function()
+    if not active then return end
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    local nearestPlayer = nil
+    local nearestDistance = circleRadius
+
+    -- Find closest player head in ring
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            addHighlight(p.Character)
+            local pos, onScreen = getScreenPosition(p)
+            if pos and onScreen then
+                local dist = (pos - center).Magnitude
+                if dist <= nearestDistance then
+                    nearestDistance = dist
+                    nearestPlayer = p
+                end
+            end
+        end
+    end
+
+    -- Smooth aim and crosshair movement
+    if nearestPlayer then
+        local targetPos, _ = getScreenPosition(nearestPlayer)
+        if targetPos then
+            aimPosition = aimPosition:Lerp(targetPos, smoothness)
+            crosshair.Position = UDim2.new(0, aimPosition.X, 0, aimPosition.Y)
+
+            if tick() - lastShot >= shootDelay then
+                shootAtHead(nearestPlayer)
+                lastShot = tick()
+            end
+        end
+    else
+        -- Return crosshair to center if no target
+        aimPosition = aimPosition:Lerp(center, smoothness)
+        crosshair.Position = UDim2.new(0, aimPosition.X, 0, aimPosition.Y)
+    end
+end)
